@@ -59,4 +59,24 @@ Fansnub is fully responsive and mobile-friendly, ensuring seamless experiences a
 
 Visit [https://www.fansnub.com](https://www.fansnub.com) to explore creators or start building your own community.
 
+# Fansnub Bot
+
+A Telegram bot that monitors RSS feeds and notifies users of new posts.
+
+## Features
+- Subscribe users automatically on /start
+- Check feeds every 10 minutes
+- Notify all users of new blog posts
+
+## Requirements
+- Python 3.8+
+- Supabase account with a `users` table
+
+## Setup
+1. Clone this repo
+2. Create `.env` with your config
+3. Install dependencies
+4. Run with `python main.py`
+
+
 ---
