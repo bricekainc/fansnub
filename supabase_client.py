@@ -1,15 +1,23 @@
-from supabase import create_client
-from config import SUPABASE_URL, SUPABASE_KEY
+import os
+import requests
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+headers = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json",
+}
 
 def add_user(telegram_id, username):
-    existing = supabase.table("users").select("*").eq("telegram_id", telegram_id).execute()
-    if not existing.data:
-        supabase.table("users").insert({
-            "telegram_id": telegram_id,
-            "username": username or ""
-        }).execute()
+    data = {
+        "telegram_id": telegram_id,
+        "username": username,
+    }
+    res = requests.post(f"{SUPABASE_URL}/rest/v1/users", json=data, headers=headers)
+    return res.status_code == 201
 
-def get_all_users():
-    return supabase.table("users").select("telegram_id").execute().data
+def get_users():
+    res = requests.get(f"{SUPABASE_URL}/rest/v1/users", headers=headers)
+    return res.json() if res.status_code == 200 else []
