@@ -22,7 +22,7 @@ WELCOME_MSG = (
     "– Site-wide posts\n"
     "– Verified creators\n\n"
     "_Example: Lana, Riley, Mohamed_\n"
-    "[Browse creators](https://fansnub.com/rss/creators/feed)"
+    "[Browse creators](https://fansnub.com/creators/)"
 )
 
 def fetch_feeds():
