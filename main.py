@@ -53,7 +53,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_creators(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    page = int(query.data.split("_")[-1])
+
+    try:
+        page = int(query.data.split("_")[-1])
+    except (IndexError, ValueError):
+        page = 0
+
     offset = page * CREATORS_PER_PAGE
     creators = rss_checker.get_all_creators(limit=CREATORS_PER_PAGE, offset=offset)
 
@@ -62,13 +67,15 @@ async def list_creators(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     keyboard = [
-        [InlineKeyboardButton(f"🔔 {c['name']}", url=c['link'])] for c in creators
+        [InlineKeyboardButton(f"🔔 {creator.get('name', 'Unknown')}", url=creator.get('link', '#'))]
+        for creator in creators
     ]
+
     nav_buttons = []
     if page > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"list_creators_{page-1}"))
+        nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"list_creators_{page - 1}"))
     if len(creators) == CREATORS_PER_PAGE:
-        nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"list_creators_{page+1}"))
+        nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"list_creators_{page + 1}"))
     if nav_buttons:
         keyboard.append(nav_buttons)
 
@@ -131,25 +138,7 @@ async def search_post_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(
                 f"📰 {r['title']}",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔗View👁️‍🗨️", url=r['link'])]
-                ])
-            )
-
-
-async def tag_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Usage: /tag <tag>")
-        return
-    tag = " ".join(context.args)
-    results = rss_checker.search_posts_by_tag(tag)
-    if not results:
-        await update.message.reply_text("🚫 No results found for that tag.")
-    else:
-        for r in results:
-            await update.message.reply_text(
-                f"🏷️ {r['title']}",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📖 Read", url=r['link'])]
+                    [InlineKeyboardButton("🔗 View 👁️‍🗨️", url=r['link'])]
                 ])
             )
 
@@ -205,7 +194,6 @@ async def start_bot():
     try:
         logger.info("🚀 Starting Telegram bot...")
 
-        # Refresh RSS cache before bot starts
         rss_checker.refresh_feed_cache()
 
         app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -213,7 +201,6 @@ async def start_bot():
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("creator", search_creator_command))
         app.add_handler(CommandHandler("post", search_post_command))
-        app.add_handler(CommandHandler("tag", tag_search_command))
         app.add_handler(CommandHandler("search", search_all_command))
         app.add_handler(CallbackQueryHandler(list_creators, pattern=r"^list_creators_\d+$"))
         app.add_handler(CallbackQueryHandler(list_posts, pattern=r"^list_posts_\d+$"))
