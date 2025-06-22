@@ -27,8 +27,9 @@ def get_all_creators(limit=10, offset=0):
     creators = {}
     for entry in _cached_entries:
         author = entry.get("author", "").strip()
-        link = entry.get("link", "").strip()
-        if author:
+        if author and author not in creators:
+            # Try to get the author profile URL, or fall back to the post link
+            link = entry.get("author_detail", {}).get("href", "") or entry.get("link", "")
             creators[author] = {
                 "name": author,
                 "username": author.lower().replace(" ", "_"),
@@ -45,19 +46,21 @@ def get_all_posts(limit=10, offset=0):
         posts.append({
             "title": entry.get("title", ""),
             "link": entry.get("link", ""),
-            "tags": entry.get("tags", []),
+            "tags": entry.get("tags") or [],
         })
     return posts[offset:offset + limit]
 
 
 def search_creators(keyword, limit=10, offset=0):
+    """Search cached creators by keyword."""
     keyword = keyword.lower()
-    creators = get_all_creators(limit=1000)  # Search within large set
+    creators = get_all_creators(limit=1000)
     filtered = [c for c in creators if keyword in c["name"].lower()]
     return filtered[offset:offset + limit]
 
 
 def search_posts(keyword, limit=10, offset=0):
+    """Search cached posts by keyword in title."""
     keyword = keyword.lower()
     posts = get_all_posts(limit=1000)
     filtered = [p for p in posts if keyword in p["title"].lower()]
@@ -65,11 +68,12 @@ def search_posts(keyword, limit=10, offset=0):
 
 
 def search_posts_by_tag(tag, limit=10, offset=0):
+    """Search cached posts by tag."""
     tag = tag.lower()
     posts = get_all_posts(limit=1000)
     filtered = [
         p for p in posts
-        if any(tag in t["term"].lower() for t in p.get("tags", []))
+        if any(tag in t.get("term", "").lower() for t in p.get("tags", []))
     ]
     return filtered[offset:offset + limit]
 
