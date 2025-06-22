@@ -8,7 +8,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     ContextTypes,
 )
-import supabase_client
+import rss_checker  # ✅ Updated to use RSS instead of Supabase
 import asyncio
 
 from config import BOT_TOKEN
@@ -52,7 +52,11 @@ async def list_creators(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     page = int(query.data.split("_")[-1])
     offset = page * CREATORS_PER_PAGE
-    creators = supabase_client.get_all_creators(limit=CREATORS_PER_PAGE, offset=offset)
+    creators = rss_checker.get_all_creators(limit=CREATORS_PER_PAGE, offset=offset)
+
+    if not creators:
+        await query.edit_message_text("🚫 No creators found.")
+        return
 
     keyboard = [
         [InlineKeyboardButton(f"🔔 Subscribe to {c['name']}", url=c['link'])]
@@ -73,7 +77,11 @@ async def list_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     page = int(query.data.split("_")[-1])
     offset = page * POSTS_PER_PAGE
-    posts = supabase_client.get_all_posts(limit=POSTS_PER_PAGE, offset=offset)
+    posts = rss_checker.get_all_posts(limit=POSTS_PER_PAGE, offset=offset)
+
+    if not posts:
+        await query.edit_message_text("🚫 No posts found.")
+        return
 
     keyboard = [
         [InlineKeyboardButton(f"📖 Read: {p['title']}", url=p['link'])]
@@ -94,7 +102,7 @@ async def search_creator_command(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text("Usage: /creator <keyword>")
         return
     keyword = " ".join(context.args)
-    results = supabase_client.search_creators(keyword)
+    results = rss_checker.search_creators(keyword)
     if not results:
         await update.message.reply_text("🚫 No creators found.")
     else:
@@ -111,7 +119,7 @@ async def search_post_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("Usage: /post <keyword>")
         return
     keyword = " ".join(context.args)
-    results = supabase_client.search_posts(keyword)
+    results = rss_checker.search_posts(keyword)
     if not results:
         await update.message.reply_text("🚫 No posts found.")
     else:
@@ -128,7 +136,7 @@ async def tag_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("Usage: /tag <tag>")
         return
     tag = " ".join(context.args)
-    results = supabase_client.search_posts_by_tag(tag)
+    results = rss_checker.search_posts_by_tag(tag)
     if not results:
         await update.message.reply_text("🚫 No posts found for that tag.")
     else:
@@ -145,8 +153,8 @@ async def search_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("Usage: /search <keyword>")
         return
     keyword = " ".join(context.args)
-    creators = supabase_client.search_creators(keyword)
-    posts = supabase_client.search_posts(keyword)
+    creators = rss_checker.search_creators(keyword)
+    posts = rss_checker.search_posts(keyword)
     if not creators and not posts:
         await update.message.reply_text("🚫 No results found.")
         return
