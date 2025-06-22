@@ -13,8 +13,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     add_user(user.id, user.username)
     await update.message.reply_text(
-        f"\U0001F44B Welcome {user.first_name}!
-\n"
+        f"\U0001F44B Welcome {user.first_name}!\n"
         "I’ll keep you updated with Fansnub new creators and blog posts.\n\n"
         "📌 Available commands:\n"
         "/search_creator <name> – Find a creator (e.g. /search_creator Fansnub)\n"
