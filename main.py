@@ -13,9 +13,43 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👋 Welcome {user.first_name}!\n\n"
         "I’ll keep you updated with Fansnub new creators and blog posts.\n\n"
         "📌 Available commands:\n"
-        "/search_creator <name> – Find a creator (e.g /search_creator Fansnub) \n"
-        "/search_post <keyword> – Find a blog post  (e.g /search_post deposit) "
+        "/search <keyword> – Search creators *and* blog posts\n"
+        "/search_creator <name> – Find a creator (e.g /search_creator Fansnub)\n"
+        "/search_post <keyword> – Find a blog post (e.g /search_post deposit)",
+        parse_mode="Markdown"
     )
+
+# Search both creators and blog posts
+async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("❗ Usage: /search <keyword>")
+        return
+
+    query = " ".join(context.args)
+    post_results = search_posts(query)
+    creator_results = search_creators(query)
+
+    messages = []
+
+    if creator_results:
+        messages.append("👤 *Creators Found:*")
+        for c in creator_results:
+            name = c.get('name', 'Unknown')
+            username = c.get('username', '')
+            link = c.get('link', '')
+            messages.append(f"• {name} (@{username})\n{link}")
+
+    if post_results:
+        messages.append("\n📝 *Blog Posts Found:*")
+        for p in post_results:
+            title = p.get('title', 'Untitled')
+            link = p.get('link', '')
+            messages.append(f"• {title}\n{link}")
+
+    if not messages:
+        await update.message.reply_text("🚫 No results found.")
+    else:
+        await update.message.reply_text("\n".join(messages), parse_mode="Markdown")
 
 # Search creator command
 async def search_creator(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -65,6 +99,7 @@ if __name__ == "__main__":
 
     # Register commands
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("search", search))
     app.add_handler(CommandHandler("search_creator", search_creator))
     app.add_handler(CommandHandler("search_post", search_post))
 
