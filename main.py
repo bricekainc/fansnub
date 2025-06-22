@@ -1,123 +1,153 @@
-import asyncio
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-                          ContextTypes)
-from config import BOT_TOKEN
-from supabase_client import add_user, get_all_users, search_creators, search_posts
-from rss_checker import check_new_posts
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+import supabase_client  # import your client file
 
-RESULTS_PER_PAGE = 3
+logging.basicConfig(level=logging.INFO)
 
-# Start command with welcome message
+# Constants for pagination
+CREATORS_PER_PAGE = 5
+POSTS_PER_PAGE = 5
+
+# ---- Handlers ---- #
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    add_user(user.id, user.username)
+    keyboard = [
+        [InlineKeyboardButton("📜 Show All Creators", callback_data="list_creators_0")],
+        [InlineKeyboardButton("📰 Show All Posts", callback_data="list_posts_0")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        f"\U0001F44B Welcome {user.first_name}!\n"
-        "I’ll keep you updated with Fansnub new creators and blog posts.\n\n"
-        "📌 Available commands:\n"
-        "/search_creator <name> – Find a creator (e.g. /search_creator Fansnub)\n"
-        "/search_post <keyword> – Find a blog post (e.g. /search_post deposit)\n"
-        "/search <keyword> – Search creators *and* blog posts together"
+        "👋 Welcome to the Fansnub Bot!\nBrowse creators and read blog posts.\n\n",
+    "📌 Available commands:\n"
+    "/search_creator <name> – Find a creator (e.g. /search_creator Fansnub)\n"
+    "/search_post <keyword> – Find a blog post (e.g. /search_post deposit)\n"
+    "/search <keyword> – Search creators *and* blog posts together"
+        reply_markup=reply_markup
     )
 
-# Paginate search results
-async def paginate_results(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- Creator Pagination --- #
+
+async def list_creators(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    page = int(query.data.split("_")[-1])
+    offset = page * CREATORS_PER_PAGE
+    creators = supabase_client.get_all_creators(limit=CREATORS_PER_PAGE, offset=offset)
 
-    data = query.data.split('|')
-    search_type, page, keyword = data[0], int(data[1]), data[2]
+    keyboard = []
+    for creator in creators:
+        keyboard.append([
+            InlineKeyboardButton(f"🔔 Subscribe to {creator['name']}", url=creator['link'])
+        ])
 
-    if search_type == 'creators':
-        results = search_creators(keyword)
-        label = "👤 *Creators Found:*"
-        format_fn = lambda c: InlineKeyboardButton(
-            text=f"{c['name']} (@{c['username']})", url=c.get("link", "") or "https://fansnub.com")
-    else:
-        results = search_posts(keyword)
-        label = "📝 *Blog Posts Found:*"
-        format_fn = lambda p: InlineKeyboardButton(text=p['title'], url=p['link'])
-
-    start_idx = page * RESULTS_PER_PAGE
-    paginated = results[start_idx:start_idx + RESULTS_PER_PAGE]
-
-    if not paginated:
-        await query.edit_message_text("No more results.")
-        return
-
-    keyboard = [[format_fn(r)] for r in paginated]
     nav_buttons = []
     if page > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"{search_type}|{page-1}|{keyword}"))
-    if start_idx + RESULTS_PER_PAGE < len(results):
-        nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"{search_type}|{page+1}|{keyword}"))
+        nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"list_creators_{page-1}"))
+    if len(creators) == CREATORS_PER_PAGE:
+        nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"list_creators_{page+1}"))
     if nav_buttons:
         keyboard.append(nav_buttons)
 
     await query.edit_message_text(
-        label,
-        parse_mode="Markdown",
+        text="👥 List of Creators:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# Combined search command
-async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- Post Pagination --- #
+
+async def list_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    page = int(query.data.split("_")[-1])
+    offset = page * POSTS_PER_PAGE
+    posts = supabase_client.get_all_posts(limit=POSTS_PER_PAGE, offset=offset)
+
+    keyboard = []
+    for post in posts:
+        keyboard.append([
+            InlineKeyboardButton(f"📖 Read: {post['title']}", url=post['link'])
+        ])
+
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"list_posts_{page-1}"))
+    if len(posts) == POSTS_PER_PAGE:
+        nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"list_posts_{page+1}"))
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+
+    await query.edit_message_text(
+        text="📰 Blog Posts:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# --- Search Commands --- #
+
+async def search_creator_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("❗ Usage: /search <keyword>")
+        await update.message.reply_text("Usage: /creator <keyword>")
         return
-
     keyword = " ".join(context.args)
-    creators = search_creators(keyword)
-    posts = search_posts(keyword)
+    results = supabase_client.search_creators(keyword)
+    if not results:
+        await update.message.reply_text("🚫 No creators found.")
+    else:
+        for r in results:
+            await update.message.reply_text(
+                f"👤 {r['name']}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔔 Subscribe", url=r['link'])]
+                ])
+            )
 
-    if not creators and not posts:
-        await update.message.reply_text("🚫 No results found.")
+async def search_post_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /post <keyword>")
         return
+    keyword = " ".join(context.args)
+    results = supabase_client.search_posts(keyword)
+    if not results:
+        await update.message.reply_text("🚫 No posts found.")
+    else:
+        for r in results:
+            await update.message.reply_text(
+                f"📰 {r['title']}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📖 Read", url=r['link'])]
+                ])
+            )
 
-    if creators:
-        await update.message.reply_text(
-            "👤 *Creators Found:*",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("View Results", callback_data=f"creators|0|{keyword}")]
-            ])
-        )
+async def tag_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /tag <tag>")
+        return
+    tag = " ".join(context.args)
+    results = supabase_client.search_posts_by_tag(tag)
+    if not results:
+        await update.message.reply_text("🚫 No posts found for that tag.")
+    else:
+        for r in results:
+            await update.message.reply_text(
+                f"🏷️ {r['title']}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📖 Read", url=r['link'])]
+                ])
+            )
 
-    if posts:
-        await update.message.reply_text(
-            "📝 *Blog Posts Found:*",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("View Results", callback_data=f"posts|0|{keyword}")]
-            ])
-        )
+# ---- Main Bot Setup ---- #
 
-# Notify users of new posts
-async def notify_users():
-    while True:
-        new_posts = check_new_posts()
-        if new_posts:
-            users = get_all_users()
-            for user in users:
-                for title, link in new_posts:
-                    try:
-                        await app.bot.send_message(
-                            chat_id=user["telegram_id"],
-                            text=f"🆕 {title}\n{link}"
-                        )
-                    except Exception as e:
-                        print(f"Failed to send to {user['telegram_id']}: {e}")
-        await asyncio.sleep(600)
-
-# Entrypoint
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+def main():
+    app = ApplicationBuilder().token("BOT_TOKEN").build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("search", search))
-    app.add_handler(CallbackQueryHandler(paginate_results))
+    app.add_handler(CommandHandler("creator", search_creator_command))
+    app.add_handler(CommandHandler("post", search_post_command))
+    app.add_handler(CommandHandler("tag", tag_search_command))
+    app.add_handler(CallbackQueryHandler(list_creators, pattern=r"^list_creators_\\d+$"))
+    app.add_handler(CallbackQueryHandler(list_posts, pattern=r"^list_posts_\\d+$"))
 
-    loop = asyncio.get_event_loop()
-    loop.create_task(notify_users())
     app.run_polling()
+
+if __name__ == '__main__':
+    main()
