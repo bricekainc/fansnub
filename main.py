@@ -1,5 +1,9 @@
-import logging
 import os
+import logging
+import threading
+from fastapi import FastAPI
+import uvicorn
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -7,16 +11,25 @@ from telegram.ext import (
     CallbackQueryHandler,
     ContextTypes,
 )
-import supabase_client  # Your custom database client
 
-# Set up logging
+import supabase_client
+
+# --- FastAPI dummy server (for Koyeb's health check) ---
+web_app = FastAPI()
+
+@web_app.get("/")
+def read_root():
+    return {"status": "Fansnub Bot is running"}
+
+# --- Logging ---
 logging.basicConfig(level=logging.INFO)
 
 # Constants
 CREATORS_PER_PAGE = 5
 POSTS_PER_PAGE = 5
 
-# --- /start command ---
+# --- Telegram Bot Handlers ---
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📜 Show All Creators", callback_data="list_creators_0")],
@@ -34,7 +47,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-# --- List creators (paginated) ---
 async def list_creators(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -55,12 +67,8 @@ async def list_creators(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if nav_buttons:
         keyboard.append(nav_buttons)
 
-    await query.edit_message_text(
-        text="👥 List of Creators:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await query.edit_message_text("👥 List of Creators:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# --- List blog posts (paginated) ---
 async def list_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -81,12 +89,8 @@ async def list_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if nav_buttons:
         keyboard.append(nav_buttons)
 
-    await query.edit_message_text(
-        text="📰 Blog Posts:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await query.edit_message_text("📰 Blog Posts:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# --- Search creators by name ---
 async def search_creator_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Usage: /creator <keyword>")
@@ -105,7 +109,6 @@ async def search_creator_command(update: Update, context: ContextTypes.DEFAULT_T
                 ])
             )
 
-# --- Search blog posts by title ---
 async def search_post_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Usage: /post <keyword>")
@@ -124,7 +127,6 @@ async def search_post_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                 ])
             )
 
-# --- Search blog posts by tag ---
 async def tag_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Usage: /tag <tag>")
@@ -143,7 +145,6 @@ async def tag_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 ])
             )
 
-# --- Unified /search command ---
 async def search_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Usage: /search <keyword>")
@@ -177,23 +178,22 @@ async def search_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 ])
             )
 
-# --- Main application setup ---
-def main():
-    BOT_TOKEN = os.environ.get("BOT_TOKEN")
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+# --- Start Telegram Bot in background thread ---
+def run_bot():
+    app = ApplicationBuilder().token(os.environ.get("BOT_TOKEN")).build()
 
-    # Commands
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("creator", search_creator_command))
     app.add_handler(CommandHandler("post", search_post_command))
     app.add_handler(CommandHandler("tag", tag_search_command))
     app.add_handler(CommandHandler("search", search_all_command))
 
-    # Pagination callbacks
     app.add_handler(CallbackQueryHandler(list_creators, pattern=r"^list_creators_\d+$"))
     app.add_handler(CallbackQueryHandler(list_posts, pattern=r"^list_posts_\d+$"))
 
     app.run_polling()
 
+# --- Start both FastAPI and Telegram Bot ---
 if __name__ == "__main__":
-    main()
+    threading.Thread(target=run_bot).start()
+    uvicorn.run(web_app, host="0.0.0.0", port=8000)
