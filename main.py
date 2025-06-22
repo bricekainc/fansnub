@@ -44,10 +44,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 Welcome to the Fansnub Bot!\n"
         "Browse creators and read blog posts.\n\n"
         "📌 Available commands:\n"
-        "/creator <name> – Find a creator (e.g. /creator Fansnub)\n"
         "/post <keyword> – Find a blog post (e.g. /post deposit)\n"
-        "/tag <tag> – Search posts by tag\n"
-        "/search <keyword> – Search creators *and* blog posts together",
+        "/search <keyword> – Hunt down creators and blog posts in one swoop (basically, snoop the whole Fansnub kingdom!)",
         reply_markup=reply_markup
     )
 
@@ -85,7 +83,7 @@ async def list_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     posts = rss_checker.get_all_posts(limit=POSTS_PER_PAGE, offset=offset)
 
     if not posts:
-        await query.edit_message_text("🚫 No posts found.")
+        await query.edit_message_text("🚫 No results found. Try again. Use /search <keyword>")
         return
 
     keyboard = [
@@ -127,13 +125,13 @@ async def search_post_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     keyword = " ".join(context.args)
     results = rss_checker.search_posts(keyword)
     if not results:
-        await update.message.reply_text("🚫 No posts found.")
+        await update.message.reply_text("🚫 No results found. Try again, use /search <keyword>")
     else:
         for r in results:
             await update.message.reply_text(
                 f"📰 {r['title']}",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📖 Read", url=r['link'])]
+                    [InlineKeyboardButton("🔗View👁️‍🗨️", url=r['link'])]
                 ])
             )
 
@@ -145,7 +143,7 @@ async def tag_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     tag = " ".join(context.args)
     results = rss_checker.search_posts_by_tag(tag)
     if not results:
-        await update.message.reply_text("🚫 No posts found for that tag.")
+        await update.message.reply_text("🚫 No results found for that tag.")
     else:
         for r in results:
             await update.message.reply_text(
@@ -176,7 +174,7 @@ async def search_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 ])
             )
     if posts:
-        await update.message.reply_text("📰 Posts found:")
+        await update.message.reply_text("🧭 What the Snub Search Dug Up:")
         for r in posts:
             await update.message.reply_text(
                 f"📰 {r['title']}",
