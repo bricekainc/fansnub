@@ -1,6 +1,5 @@
 import os
 import logging
-import asyncio
 from fastapi import FastAPI
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -10,24 +9,26 @@ from telegram.ext import (
     ContextTypes,
 )
 import supabase_client
+import asyncio
+
 from config import BOT_TOKEN
 
-# Logging
+# --- Logging ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# FastAPI app for health check
+# --- FastAPI App ---
 web_app = FastAPI()
+
+# --- Constants ---
+CREATORS_PER_PAGE = 5
+POSTS_PER_PAGE = 5
 
 @web_app.get("/")
 def read_root():
     return {"status": "Fansnub Bot is running"}
 
-# Constants
-CREATORS_PER_PAGE = 5
-POSTS_PER_PAGE = 5
-
-# Telegram Bot Handlers
+# --- Telegram Bot Handlers ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -51,13 +52,12 @@ async def list_creators(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     page = int(query.data.split("_")[-1])
     offset = page * CREATORS_PER_PAGE
-
     creators = supabase_client.get_all_creators(limit=CREATORS_PER_PAGE, offset=offset)
+
     keyboard = [
         [InlineKeyboardButton(f"🔔 Subscribe to {c['name']}", url=c['link'])]
         for c in creators
     ]
-
     nav_buttons = []
     if page > 0:
         nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"list_creators_{page-1}"))
@@ -73,13 +73,12 @@ async def list_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     page = int(query.data.split("_")[-1])
     offset = page * POSTS_PER_PAGE
-
     posts = supabase_client.get_all_posts(limit=POSTS_PER_PAGE, offset=offset)
+
     keyboard = [
         [InlineKeyboardButton(f"📖 Read: {p['title']}", url=p['link'])]
         for p in posts
     ]
-
     nav_buttons = []
     if page > 0:
         nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"list_posts_{page-1}"))
@@ -94,7 +93,6 @@ async def search_creator_command(update: Update, context: ContextTypes.DEFAULT_T
     if not context.args:
         await update.message.reply_text("Usage: /creator <keyword>")
         return
-
     keyword = " ".join(context.args)
     results = supabase_client.search_creators(keyword)
     if not results:
@@ -112,7 +110,6 @@ async def search_post_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not context.args:
         await update.message.reply_text("Usage: /post <keyword>")
         return
-
     keyword = " ".join(context.args)
     results = supabase_client.search_posts(keyword)
     if not results:
@@ -130,7 +127,6 @@ async def tag_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not context.args:
         await update.message.reply_text("Usage: /tag <tag>")
         return
-
     tag = " ".join(context.args)
     results = supabase_client.search_posts_by_tag(tag)
     if not results:
@@ -148,15 +144,12 @@ async def search_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not context.args:
         await update.message.reply_text("Usage: /search <keyword>")
         return
-
     keyword = " ".join(context.args)
     creators = supabase_client.search_creators(keyword)
     posts = supabase_client.search_posts(keyword)
-
     if not creators and not posts:
         await update.message.reply_text("🚫 No results found.")
         return
-
     if creators:
         await update.message.reply_text("👥 Creators found:")
         for r in creators:
@@ -166,7 +159,6 @@ async def search_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     [InlineKeyboardButton("🔔 Subscribe", url=r['link'])]
                 ])
             )
-
     if posts:
         await update.message.reply_text("📰 Posts found:")
         for r in posts:
@@ -177,21 +169,28 @@ async def search_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 ])
             )
 
-# Startup hook to launch Telegram bot
+# --- Start bot on FastAPI startup ---
 @web_app.on_event("startup")
 async def start_bot():
     try:
         logger.info("🚀 Starting Telegram bot...")
-        application = ApplicationBuilder().token(BOT_TOKEN).build()
+        app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("creator", search_creator_command))
-        application.add_handler(CommandHandler("post", search_post_command))
-        application.add_handler(CommandHandler("tag", tag_search_command))
-        application.add_handler(CommandHandler("search", search_all_command))
-        application.add_handler(CallbackQueryHandler(list_creators, pattern=r"^list_creators_\d+$"))
-        application.add_handler(CallbackQueryHandler(list_posts, pattern=r"^list_posts_\d+$"))
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("creator", search_creator_command))
+        app.add_handler(CommandHandler("post", search_post_command))
+        app.add_handler(CommandHandler("tag", tag_search_command))
+        app.add_handler(CommandHandler("search", search_all_command))
+        app.add_handler(CallbackQueryHandler(list_creators, pattern=r"^list_creators_\d+$"))
+        app.add_handler(CallbackQueryHandler(list_posts, pattern=r"^list_posts_\d+$"))
 
-        asyncio.create_task(application.run_polling())
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling()
     except Exception as e:
         logger.error(f"❌ Failed to start bot: {e}")
+
+# --- Start FastAPI server ---
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(web_app, host="0.0.0.0", port=8000)
