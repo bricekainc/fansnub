@@ -22,22 +22,21 @@ def get_users():
     res = requests.get(f"{SUPABASE_URL}/rest/v1/users", headers=headers)
     return res.json() if res.status_code == 200 else []
 
-# ✅ Required for notify_users()
 def get_all_users():
     return get_users()
 
 # 🔍 Search creators by name (case-insensitive)
 def search_creators(keyword):
-    params = {
-        "name": f"ilike.*{keyword}*"
-    }
-    res = requests.get(f"{SUPABASE_URL}/rest/v1/creators", headers=headers, params=params)
+    res = requests.get(
+        f"{SUPABASE_URL}/rest/v1/creators?select=name,username,link&name=ilike.*{keyword}*",
+        headers=headers,
+    )
     return res.json() if res.status_code == 200 else []
 
 # 🔍 Search blog posts by title (case-insensitive)
 def search_posts(keyword):
-    params = {
-        "title": f"ilike.*{keyword}*"
-    }
-    res = requests.get(f"{SUPABASE_URL}/rest/v1/posts", headers=headers, params=params)
+    res = requests.get(
+        f"{SUPABASE_URL}/rest/v1/posts?select=title,link&title=ilike.*{keyword}*",
+        headers=headers,
+    )
     return res.json() if res.status_code == 200 else []
