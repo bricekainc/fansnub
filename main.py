@@ -1,12 +1,15 @@
 import os
 import logging
 import asyncio
+import random
 from fastapi import FastAPI
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     CallbackQueryHandler,
+    MessageHandler,
+    filters,
     ContextTypes,
 )
 
@@ -26,6 +29,9 @@ CREATORS_PER_PAGE = 5
 POSTS_PER_PAGE = 5
 BOT = Bot(token=BOT_TOKEN)
 
+# --- State ---
+awaiting_search_input = set()
+
 
 @web_app.get("/")
 def read_root():
@@ -36,50 +42,38 @@ def read_root():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("📜 Show All Creators", callback_data="list_creators_0")],
+        [InlineKeyboardButton("🌟 Show Today's Featured Creator", callback_data="featured_creator")],
         [InlineKeyboardButton("📰 Show All Posts", callback_data="list_posts_0")],
+        [InlineKeyboardButton("🔍 Search Fansnub", callback_data="search_start")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
         "👋 Welcome to the Fansnub Bot!\n"
         "Browse creators and read blog posts.\n\n"
         "📌 Available commands:\n"
-        "/post <keyword> – Find a blog post (e.g. /post deposit)\n"
-        "/search <keyword> – Hunt down creators and blog posts in one swoop (basically, snoop the whole Fansnub kingdom!)",
+        "/post <keyword> – Find a blog post\n"
+        "/search <keyword> – Hunt creators & posts\n",
         reply_markup=reply_markup
     )
 
 
-async def list_creators(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_featured_creator(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    try:
-        page = int(query.data.split("_")[-1])
-    except (IndexError, ValueError):
-        page = 0
-
-    offset = page * CREATORS_PER_PAGE
-    creators = rss_checker.get_all_creators(limit=CREATORS_PER_PAGE, offset=offset)
-
+    creators = rss_checker.get_all_creators(limit=1000)
     if not creators:
-        await query.edit_message_text("🚫 No creators found.")
+        await query.edit_message_text("🚫 No creators available.")
         return
 
-    keyboard = [
-        [InlineKeyboardButton(f"🔔 {creator.get('name', 'Unknown')}", url=creator.get('link', '#'))]
-        for creator in creators
-    ]
-
-    nav_buttons = []
-    if page > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"list_creators_{page - 1}"))
-    if len(creators) == CREATORS_PER_PAGE:
-        nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"list_creators_{page + 1}"))
-    if nav_buttons:
-        keyboard.append(nav_buttons)
-
-    await query.edit_message_text("👥 List of Creators:", reply_markup=InlineKeyboardMarkup(keyboard))
+    featured = random.choice(creators)
+    await query.edit_message_text(
+        f"🌟 Today's Featured Creator:\n\n👤 {featured['name']}",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔔 Subscribe", url=featured['link'])],
+            [InlineKeyboardButton("🔄 Show Another", callback_data="featured_creator")]
+        ])
+    )
 
 
 async def list_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -93,83 +87,58 @@ async def list_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🚫 No results found. Try again. Use /search <keyword>")
         return
 
-    keyboard = [
-        [InlineKeyboardButton(f"📖 {p['title']}", url=p['link'])] for p in posts
-    ]
+    keyboard = [[InlineKeyboardButton(f"📖 {p['title']}", url=p['link'])] for p in posts]
     nav_buttons = []
     if page > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"list_posts_{page-1}"))
+        nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"list_posts_{page - 1}"))
     if len(posts) == POSTS_PER_PAGE:
-        nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"list_posts_{page+1}"))
+        nav_buttons.append(InlineKeyboardButton("➡️ Next", callback_data=f"list_posts_{page + 1}"))
     if nav_buttons:
         keyboard.append(nav_buttons)
 
     await query.edit_message_text("📰 Blog Posts:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-async def search_creator_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Usage: /creator <keyword>")
+async def initiate_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    awaiting_search_input.add(user_id)
+    await query.message.reply_text("🔍 What would you like to search for? Type your keyword below:", reply_markup=ReplyKeyboardRemove())
+
+
+async def handle_search_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if user_id not in awaiting_search_input:
         return
-    keyword = " ".join(context.args)
-    results = rss_checker.search_creators(keyword)
-    if not results:
-        await update.message.reply_text("🚫 No creators found.")
-    else:
-        for r in results:
-            await update.message.reply_text(
-                f"👤 {r['name']}",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔔 Subscribe", url=r['link'])]
-                ])
-            )
 
+    awaiting_search_input.discard(user_id)
+    keyword = update.message.text.strip()
 
-async def search_post_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Usage: /post <keyword>")
-        return
-    keyword = " ".join(context.args)
-    results = rss_checker.search_posts(keyword)
-    if not results:
-        await update.message.reply_text("🚫 No results found. Try again, use /search <keyword>")
-    else:
-        for r in results:
-            await update.message.reply_text(
-                f"📰 {r['title']}",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔗 View 👁️‍🗨️", url=r['link'])]
-                ])
-            )
-
-
-async def search_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Usage: /search <keyword>")
-        return
-    keyword = " ".join(context.args)
     creators = rss_checker.search_creators(keyword)
     posts = rss_checker.search_posts(keyword)
+
     if not creators and not posts:
-        await update.message.reply_text("🚫 No results found.")
+        await update.message.reply_text(
+            f"🚫 No results found for '{keyword}'.\n\n"
+            "🧭 You can try searching directly on https://fansnub.com or contact support at https://support.briceka.com"
+        )
         return
+
     if creators:
         await update.message.reply_text("👥 Creators found:")
         for r in creators:
             await update.message.reply_text(
                 f"👤 {r['name']}",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔔 Subscribe", url=r['link'])]
-                ])
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔔 Subscribe", url=r['link'])]])
             )
+
     if posts:
-        await update.message.reply_text("🧭 What the Snub Search Dug Up:")
+        await update.message.reply_text("🧭 Posts found:")
         for r in posts:
             await update.message.reply_text(
                 f"📰 {r['title']}",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📖 Read", url=r['link'])]
-                ])
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📖 Read", url=r['link'])]])
             )
 
 
@@ -185,7 +154,7 @@ async def notify_users_of_new_posts():
                         await BOT.send_message(chat_id=user['telegram_id'], text=f"🆕 New post: {title}\n{link}")
                     except Exception as e:
                         logger.warning(f"❌ Failed to message {user['telegram_id']}: {e}")
-        await asyncio.sleep(300)  # Check every 5 minutes
+        await asyncio.sleep(300)  # 5 minutes
 
 
 # --- Start bot on FastAPI startup ---
@@ -199,11 +168,11 @@ async def start_bot():
         app = ApplicationBuilder().token(BOT_TOKEN).build()
 
         app.add_handler(CommandHandler("start", start))
-        app.add_handler(CommandHandler("creator", search_creator_command))
-        app.add_handler(CommandHandler("post", search_post_command))
-        app.add_handler(CommandHandler("search", search_all_command))
-        app.add_handler(CallbackQueryHandler(list_creators, pattern=r"^list_creators_\d+$"))
+        app.add_handler(CommandHandler("search", handle_search_input))  # fallback for /search
+        app.add_handler(CallbackQueryHandler(show_featured_creator, pattern=r"^featured_creator$"))
         app.add_handler(CallbackQueryHandler(list_posts, pattern=r"^list_posts_\d+$"))
+        app.add_handler(CallbackQueryHandler(initiate_search, pattern=r"^search_start$"))
+        app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_search_input))
 
         await app.initialize()
         await app.start()
