@@ -27,9 +27,10 @@ def get_all_creators(limit=10, offset=0):
     creators = {}
     for entry in _cached_entries:
         author = entry.get("author", "").strip()
-        if author and author not in creators:
-            # Try to get the author profile URL, or fall back to the post link
-            link = entry.get("author_detail", {}).get("href", "") or entry.get("link", "")
+        if not author:
+            continue
+        if author not in creators:
+            link = entry.get("author_detail", {}).get("href") or entry.get("link", "")
             creators[author] = {
                 "name": author,
                 "username": author.lower().replace(" ", "_"),
@@ -46,7 +47,7 @@ def get_all_posts(limit=10, offset=0):
         posts.append({
             "title": entry.get("title", ""),
             "link": entry.get("link", ""),
-            "tags": entry.get("tags") or [],
+            "tags": entry.get("tags", []),
         })
     return posts[offset:offset + limit]
 
@@ -73,7 +74,7 @@ def search_posts_by_tag(tag, limit=10, offset=0):
     posts = get_all_posts(limit=1000)
     filtered = [
         p for p in posts
-        if any(tag in t.get("term", "").lower() for t in p.get("tags", []))
+        if any(tag in (t.get("term", "") or "").lower() for t in p.get("tags", []))
     ]
     return filtered[offset:offset + limit]
 
