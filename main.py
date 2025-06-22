@@ -14,21 +14,21 @@ from telegram.ext import (
 
 import supabase_client
 
-# --- FastAPI dummy server (for Koyeb's health check) ---
+# FastAPI app (for health check)
 web_app = FastAPI()
 
 @web_app.get("/")
 def read_root():
     return {"status": "Fansnub Bot is running"}
 
-# --- Logging ---
+# Logging
 logging.basicConfig(level=logging.INFO)
 
 # Constants
 CREATORS_PER_PAGE = 5
 POSTS_PER_PAGE = 5
 
-# --- Telegram Bot Handlers ---
+# Telegram Bot Handlers
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -40,10 +40,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 Welcome to the Fansnub Bot!\n"
         "Browse creators and read blog posts.\n\n"
         "📌 Available commands:\n"
-        "/creator <name> – Find a creator (e.g. /creator Fansnub)\n"
-        "/post <keyword> – Find a blog post (e.g. /post deposit)\n"
+        "/creator <name> – Find a creator\n"
+        "/post <keyword> – Find a blog post\n"
         "/tag <tag> – Search posts by tag\n"
-        "/search <keyword> – Search creators *and* blog posts together",
+        "/search <keyword> – Search all content",
         reply_markup=reply_markup
     )
 
@@ -55,7 +55,7 @@ async def list_creators(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     creators = supabase_client.get_all_creators(limit=CREATORS_PER_PAGE, offset=offset)
     keyboard = [
-        [InlineKeyboardButton(f"🔔 Subscribe to {c['name']}", url=c['link'])]
+        [InlineKeyboardButton(f"🔔 {c['name']}", url=c['link'])]
         for c in creators
     ]
 
@@ -77,7 +77,7 @@ async def list_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     posts = supabase_client.get_all_posts(limit=POSTS_PER_PAGE, offset=offset)
     keyboard = [
-        [InlineKeyboardButton(f"📖 Read: {p['title']}", url=p['link'])]
+        [InlineKeyboardButton(f"📖 {p['title']}", url=p['link'])]
         for p in posts
     ]
 
@@ -90,6 +90,8 @@ async def list_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append(nav_buttons)
 
     await query.edit_message_text("📰 Blog Posts:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# Search commands
 
 async def search_creator_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -178,9 +180,9 @@ async def search_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 ])
             )
 
-# --- Main async entry point to run bot and server ---
-async def run_bot_and_server():
-    app = ApplicationBuilder().token(os.environ.get("BOT_TOKEN")).build()
+# Entry point
+async def start_bot():
+    app = ApplicationBuilder().token(os.environ["BOT_TOKEN"]).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("creator", search_creator_command))
@@ -191,12 +193,10 @@ async def run_bot_and_server():
     app.add_handler(CallbackQueryHandler(list_creators, pattern=r"^list_creators_\d+$"))
     app.add_handler(CallbackQueryHandler(list_posts, pattern=r"^list_posts_\d+$"))
 
-    bot_task = asyncio.create_task(app.run_polling())
-    server_config = uvicorn.Config(web_app, host="0.0.0.0", port=8000, log_level="info")
-    server = uvicorn.Server(server_config)
-    server_task = asyncio.create_task(server.serve())
-
-    await asyncio.gather(bot_task, server_task)
+    await app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(run_bot_and_server())
+    # Launch FastAPI and Bot in asyncio loop
+    loop = asyncio.get_event_loop()
+    loop.create_task(start_bot())
+    uvicorn.run(web_app, host="0.0.0.0", port=8000)
