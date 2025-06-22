@@ -1,16 +1,22 @@
 import logging
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
-import supabase_client  # import your client file
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+)
+import supabase_client  # Your custom database client
 
+# Set up logging
 logging.basicConfig(level=logging.INFO)
 
-# Constants for pagination
+# Constants
 CREATORS_PER_PAGE = 5
 POSTS_PER_PAGE = 5
 
-# ---- Handlers ---- #
-
+# --- /start command ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📜 Show All Creators", callback_data="list_creators_0")],
@@ -18,28 +24,28 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "👋 Welcome to the Fansnub Bot!\nBrowse creators and read blog posts.\n\n",
-    "📌 Available commands:\n"
-    "/search_creator <name> – Find a creator (e.g. /search_creator Fansnub)\n"
-    "/search_post <keyword> – Find a blog post (e.g. /search_post deposit)\n"
-    "/search <keyword> – Search creators *and* blog posts together"
+        "👋 Welcome to the Fansnub Bot!\n"
+        "Browse creators and read blog posts.\n\n"
+        "📌 Available commands:\n"
+        "/creator <name> – Find a creator (e.g. /creator Fansnub)\n"
+        "/post <keyword> – Find a blog post (e.g. /post deposit)\n"
+        "/tag <tag> – Search posts by tag\n"
+        "/search <keyword> – Search creators *and* blog posts together",
         reply_markup=reply_markup
     )
 
-# --- Creator Pagination --- #
-
+# --- List creators (paginated) ---
 async def list_creators(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     page = int(query.data.split("_")[-1])
     offset = page * CREATORS_PER_PAGE
-    creators = supabase_client.get_all_creators(limit=CREATORS_PER_PAGE, offset=offset)
 
-    keyboard = []
-    for creator in creators:
-        keyboard.append([
-            InlineKeyboardButton(f"🔔 Subscribe to {creator['name']}", url=creator['link'])
-        ])
+    creators = supabase_client.get_all_creators(limit=CREATORS_PER_PAGE, offset=offset)
+    keyboard = [
+        [InlineKeyboardButton(f"🔔 Subscribe to {c['name']}", url=c['link'])]
+        for c in creators
+    ]
 
     nav_buttons = []
     if page > 0:
@@ -54,20 +60,18 @@ async def list_creators(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# --- Post Pagination --- #
-
+# --- List blog posts (paginated) ---
 async def list_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     page = int(query.data.split("_")[-1])
     offset = page * POSTS_PER_PAGE
-    posts = supabase_client.get_all_posts(limit=POSTS_PER_PAGE, offset=offset)
 
-    keyboard = []
-    for post in posts:
-        keyboard.append([
-            InlineKeyboardButton(f"📖 Read: {post['title']}", url=post['link'])
-        ])
+    posts = supabase_client.get_all_posts(limit=POSTS_PER_PAGE, offset=offset)
+    keyboard = [
+        [InlineKeyboardButton(f"📖 Read: {p['title']}", url=p['link'])]
+        for p in posts
+    ]
 
     nav_buttons = []
     if page > 0:
@@ -82,12 +86,12 @@ async def list_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# --- Search Commands --- #
-
+# --- Search creators by name ---
 async def search_creator_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Usage: /creator <keyword>")
         return
+
     keyword = " ".join(context.args)
     results = supabase_client.search_creators(keyword)
     if not results:
@@ -101,10 +105,12 @@ async def search_creator_command(update: Update, context: ContextTypes.DEFAULT_T
                 ])
             )
 
+# --- Search blog posts by title ---
 async def search_post_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Usage: /post <keyword>")
         return
+
     keyword = " ".join(context.args)
     results = supabase_client.search_posts(keyword)
     if not results:
@@ -118,10 +124,12 @@ async def search_post_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                 ])
             )
 
+# --- Search blog posts by tag ---
 async def tag_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Usage: /tag <tag>")
         return
+
     tag = " ".join(context.args)
     results = supabase_client.search_posts_by_tag(tag)
     if not results:
@@ -135,19 +143,57 @@ async def tag_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 ])
             )
 
-# ---- Main Bot Setup ---- #
+# --- Unified /search command ---
+async def search_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /search <keyword>")
+        return
 
+    keyword = " ".join(context.args)
+    creators = supabase_client.search_creators(keyword)
+    posts = supabase_client.search_posts(keyword)
+
+    if not creators and not posts:
+        await update.message.reply_text("🚫 No results found.")
+        return
+
+    if creators:
+        await update.message.reply_text("👥 Creators found:")
+        for r in creators:
+            await update.message.reply_text(
+                f"👤 {r['name']}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔔 Subscribe", url=r['link'])]
+                ])
+            )
+
+    if posts:
+        await update.message.reply_text("📰 Posts found:")
+        for r in posts:
+            await update.message.reply_text(
+                f"📰 {r['title']}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📖 Read", url=r['link'])]
+                ])
+            )
+
+# --- Main application setup ---
 def main():
-    app = ApplicationBuilder().token("BOT_TOKEN").build()
+    BOT_TOKEN = os.environ.get("BOT_TOKEN")
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # Commands
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("creator", search_creator_command))
     app.add_handler(CommandHandler("post", search_post_command))
     app.add_handler(CommandHandler("tag", tag_search_command))
-    app.add_handler(CallbackQueryHandler(list_creators, pattern=r"^list_creators_\\d+$"))
-    app.add_handler(CallbackQueryHandler(list_posts, pattern=r"^list_posts_\\d+$"))
+    app.add_handler(CommandHandler("search", search_all_command))
+
+    # Pagination callbacks
+    app.add_handler(CallbackQueryHandler(list_creators, pattern=r"^list_creators_\d+$"))
+    app.add_handler(CallbackQueryHandler(list_posts, pattern=r"^list_posts_\d+$"))
 
     app.run_polling()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
