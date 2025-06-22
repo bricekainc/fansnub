@@ -1,16 +1,17 @@
 import os
 import logging
+import asyncio
 from fastapi import FastAPI
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     CallbackQueryHandler,
     ContextTypes,
 )
-import rss_checker  # ✅ Updated to use RSS instead of Supabase
-import asyncio
 
+import rss_checker
+from supabase_client import get_all_users
 from config import BOT_TOKEN
 
 # --- Logging ---
@@ -23,10 +24,13 @@ web_app = FastAPI()
 # --- Constants ---
 CREATORS_PER_PAGE = 5
 POSTS_PER_PAGE = 5
+BOT = Bot(token=BOT_TOKEN)
+
 
 @web_app.get("/")
 def read_root():
     return {"status": "Fansnub Bot is running"}
+
 
 # --- Telegram Bot Handlers ---
 
@@ -47,6 +51,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
+
 async def list_creators(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -59,8 +64,7 @@ async def list_creators(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     keyboard = [
-        [InlineKeyboardButton(f"🔔 Subscribe to {c['name']}", url=c['link'])]
-        for c in creators
+        [InlineKeyboardButton(f"🔔 {c['name']}", url=c['link'])] for c in creators
     ]
     nav_buttons = []
     if page > 0:
@@ -71,6 +75,7 @@ async def list_creators(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append(nav_buttons)
 
     await query.edit_message_text("👥 List of Creators:", reply_markup=InlineKeyboardMarkup(keyboard))
+
 
 async def list_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -84,8 +89,7 @@ async def list_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     keyboard = [
-        [InlineKeyboardButton(f"📖 Read: {p['title']}", url=p['link'])]
-        for p in posts
+        [InlineKeyboardButton(f"📖 {p['title']}", url=p['link'])] for p in posts
     ]
     nav_buttons = []
     if page > 0:
@@ -96,6 +100,7 @@ async def list_posts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append(nav_buttons)
 
     await query.edit_message_text("📰 Blog Posts:", reply_markup=InlineKeyboardMarkup(keyboard))
+
 
 async def search_creator_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -114,6 +119,7 @@ async def search_creator_command(update: Update, context: ContextTypes.DEFAULT_T
                 ])
             )
 
+
 async def search_post_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Usage: /post <keyword>")
@@ -131,6 +137,7 @@ async def search_post_command(update: Update, context: ContextTypes.DEFAULT_TYPE
                 ])
             )
 
+
 async def tag_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Usage: /tag <tag>")
@@ -147,6 +154,7 @@ async def tag_search_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     [InlineKeyboardButton("📖 Read", url=r['link'])]
                 ])
             )
+
 
 async def search_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -177,6 +185,22 @@ async def search_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 ])
             )
 
+
+# --- Background Task: Notify all users of new RSS entries ---
+async def notify_users_of_new_posts():
+    while True:
+        new_entries = rss_checker.check_new_posts()
+        if new_entries:
+            users = get_all_users()
+            for title, link in new_entries:
+                for user in users:
+                    try:
+                        await BOT.send_message(chat_id=user['telegram_id'], text=f"🆕 New post: {title}\n{link}")
+                    except Exception as e:
+                        logger.warning(f"❌ Failed to message {user['telegram_id']}: {e}")
+        await asyncio.sleep(300)  # Check every 5 minutes
+
+
 # --- Start bot on FastAPI startup ---
 @web_app.on_event("startup")
 async def start_bot():
@@ -195,8 +219,10 @@ async def start_bot():
         await app.initialize()
         await app.start()
         await app.updater.start_polling()
+        asyncio.create_task(notify_users_of_new_posts())  # ⏳ Start RSS notifier loop
     except Exception as e:
         logger.error(f"❌ Failed to start bot: {e}")
+
 
 # --- Start FastAPI server ---
 if __name__ == "__main__":
