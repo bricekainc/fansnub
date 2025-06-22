@@ -206,6 +206,10 @@ async def notify_users_of_new_posts():
 async def start_bot():
     try:
         logger.info("🚀 Starting Telegram bot...")
+
+        # Refresh RSS cache before bot starts
+        rss_checker.refresh_feed_cache()
+
         app = ApplicationBuilder().token(BOT_TOKEN).build()
 
         app.add_handler(CommandHandler("start", start))
@@ -219,7 +223,8 @@ async def start_bot():
         await app.initialize()
         await app.start()
         await app.updater.start_polling()
-        asyncio.create_task(notify_users_of_new_posts())  # ⏳ Start RSS notifier loop
+
+        asyncio.create_task(notify_users_of_new_posts())
     except Exception as e:
         logger.error(f"❌ Failed to start bot: {e}")
 
