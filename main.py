@@ -1,6 +1,6 @@
 import os
 import logging
-import threading
+import asyncio
 from fastapi import FastAPI
 import uvicorn
 
@@ -178,8 +178,8 @@ async def search_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 ])
             )
 
-# --- Start Telegram Bot in background thread ---
-def run_bot():
+# --- Main async entry point to run bot and server ---
+async def run_bot_and_server():
     app = ApplicationBuilder().token(os.environ.get("BOT_TOKEN")).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -191,9 +191,12 @@ def run_bot():
     app.add_handler(CallbackQueryHandler(list_creators, pattern=r"^list_creators_\d+$"))
     app.add_handler(CallbackQueryHandler(list_posts, pattern=r"^list_posts_\d+$"))
 
-    app.run_polling()
+    bot_task = asyncio.create_task(app.run_polling())
+    server_config = uvicorn.Config(web_app, host="0.0.0.0", port=8000, log_level="info")
+    server = uvicorn.Server(server_config)
+    server_task = asyncio.create_task(server.serve())
 
-# --- Start both FastAPI and Telegram Bot ---
+    await asyncio.gather(bot_task, server_task)
+
 if __name__ == "__main__":
-    threading.Thread(target=run_bot).start()
-    uvicorn.run(web_app, host="0.0.0.0", port=8000)
+    asyncio.run(run_bot_and_server())
