@@ -1,5 +1,6 @@
 import os
 import requests
+import feedparser  # ✅ Make sure this is installed: pip install feedparser
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -25,15 +26,18 @@ def get_users():
 def get_all_users():
     return get_users()
 
-# 🔍 Search creators by name (case-insensitive)
+# 🔍 Search creators using RSS feed (case-insensitive)
 def search_creators(keyword):
-    res = requests.get(
-        f"{SUPABASE_URL}/rest/v1/creators?select=name,username,link&name=ilike.*{keyword}*",
-        headers=headers,
-    )
-    return res.json() if res.status_code == 200 else []
+    url = "https://fansnub.com/rss/creators/feed/"
+    feed = feedparser.parse(url)
+    lkey = keyword.casefold()
+    results = []
+    for e in feed.entries:
+        if lkey in e.title.casefold():
+            results.append({"name": e.title, "link": e.link})
+    return results
 
-# 🔍 Search blog posts by title (case-insensitive)
+# 🔍 Search blog posts by title (case-insensitive, from Supabase)
 def search_posts(keyword):
     res = requests.get(
         f"{SUPABASE_URL}/rest/v1/posts?select=title,link&title=ilike.*{keyword}*",
